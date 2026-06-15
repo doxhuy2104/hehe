@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cinematic Fighter Jet Simulation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #000;
+            font-family: sans-serif;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            /* Slight CSS blur/contrast combo to enhance the glowing elements */
+            filter: contrast(1.1) saturate(1.2);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="flightCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('flightCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let width, height;
+        let time = 0;
+        
+        // Configuration
+        const speedLines = [];
+        const particles = [];
+        const STAR_COUNT = 400; // Multi-layered depth streaks
+
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        class SpeedLine {
+            constructor() {
+                this.z = Math.random() * 2 + 0.1; // Depth: 0.1 (bg) to 2.1 (fg)
+                this.reset();
+                this.x = (Math.random() - 0.5) * width * 2; // Initial spread
+            }
+            reset() {
+                this.x = width / 2 + Math.random() * width;
+                this.y = (Math.random() - 0.5) * height * 1.5;
+                this.length = (Math.random() * 150 + 50) * this.z;
+                this.speed = (Math.random() * 60 + 40) * this.z;
+                this.opacity = Math.min(0.8, (Math.random() * 0.4 + 0.1) * this.z);
+                this.color = this.z > 1.5 ? '#fff' : '#6688aa'; // Foreground streaks are brighter
+            }
+            update() {
+                this.x -= this.speed;
+                if (this.x < -width / 2 - this.length) {
+                    this.reset();
+                }
+            }
+            draw() {
+                ctx.save();
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y);
+                ctx.lineTo(this.x + this.length, this.y);
+                ctx.strokeStyle = this.color;
+                ctx.globalAlpha = this.opacity;
+                ctx.lineWidth = this.z > 1.5 ? 2 : 1;
+                ctx.stroke();
+                ctx.restore();
+            }
+        }
+
+        class Particle {
+            constructor(x, y, type) {
+                this.x = x;
+                this.y = y;
+                this.type = type; // 'contrail' or 'heat'
+                this.life = 1.0;
+                this.vx = -Math.random() * 10 - 30; // High speed moving left
+                this.vy = (Math.random() - 0.5) * 2;
+                this.size = type === 'heat' ? Math.random() * 10 + 10 : Math.random() * 2 + 1;
+                this.decay = type === 'heat' ? 0.05 : 0.015;
+            }
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.life -= this.decay;
+                if (this.type === 'contrail') this.size += 0.4;
+                if (this.type === 'heat') {
+                    this.size += 2;
+                    this.vy += (Math.random() - 0.5) * 4; // Turbulent heat distortion
+                }
+            }
+            draw() {
+                if (this.life <= 0) return;
+                ctx.save();
+                ctx.beginPath();
+                
+                if (this.type === 'contrail') {
+                    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(220, 230, 255, ${this.life * 0.2})`;
+                    ctx.fill();
+                } else if (this.type === 'heat') {
+                    // Simulating heat distortion/mirage via layered translucent ellipses
+                    ctx.ellipse(this.x, this.y, this.size * 2, this.size, 0, 0, Math.PI * 2);
+                    ctx.globalCompositeOperation = 'screen';
+                    ctx.fillStyle = `rgba(150, 150, 150, ${this.life * 0.05})`;
+                    ctx.fill();
+                    ctx.strokeStyle = `rgba(255, 255, 255, ${this.life * 0.02})`;
+                    ctx.stroke();
+                }
+                ctx.restore();
+            }
+        }
+
+        for (let i = 0; i < STAR_COUNT; i++) {
+            speedLines.push(new SpeedLine());
+        }
+
+        function drawJetGeometry(isShadow = false) {
+            ctx.beginPath();
+            // Nose
+            ctx.moveTo(180, 0);
+            // Top Fuselage / Canopy
+            ctx.lineTo(80, -12);
+            ctx.lineTo(30, -28); // Canopy start
+            ctx.lineTo(-20, -28); // Canopy end
+            ctx.lineTo(-90, -18);
+            // Top Engine Intake/Thruster
+            ctx.lineTo(-110, -15);
+            ctx.lineTo(-140, -12);
+            // Bottom Engine
+            ctx.lineTo(-140, 12);
+            // Bottom Fuselage
+            ctx.lineTo(-90, 18);
+            ctx.lineTo(-20, 15);
+            ctx.lineTo(60, 12);
+            ctx.closePath();
+
+            if (!isShadow) {
+                // Animated specular reflections simulating cinematic lighting over metal
+                let lightShift = Math.sin(time * 8) * 30; // High frequency lighting shift
+                let grad = ctx.createLinearGradient(-100 + lightShift, -30, 180 + lightShift, 30);
+                grad.addColorStop(0, '#111');
+                grad.addColorStop(0.3, '#334');
+                grad.addColorStop(0.5, '#fff'); // Intense specular highlight
+                grad.addColorStop(0.7, '#222');
+                grad.addColorStop(1, '#050505');
+                ctx.fillStyle = grad;
+            }
+            ctx.fill();
+
+            if (isShadow) return;
+
+            // Canopy Glass
+            ctx.fillStyle = '#050505';
+            ctx.beginPath();
+            ctx.moveTo(25, -27);
+            ctx.lineTo(75, -13);
+            ctx.lineTo(55, -8);
+            ctx.lineTo(0, -18);
+            ctx.fill();
+            
+            // Canopy Specular Highlight
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+            ctx.beginPath();
+            ctx.moveTo(65, -14);
+            ctx.lineTo(45, -19);
+            ctx.lineTo(55, -11);
+            ctx.fill();
+
+            // Far Wing (Background)
+            ctx.fillStyle = '#111';
+            ctx.beginPath();
+            ctx.moveTo(-40, -15);
+            ctx.lineTo(-90, -55);
+            ctx.lineTo(-120, -55);
+            ctx.lineTo(-80, -15);
+            ctx.fill();
+
+            // Near Wing (Foreground)
+            let wingGrad = ctx.createLinearGradient(0, 10, -100, 60);
+            wingGrad.addColorStop(0, '#333');
+            wingGrad.addColorStop(1, '#111');
+            ctx.fillStyle = wingGrad;
+            ctx.beginPath();
+            ctx.moveTo(10, 10);
+            ctx.lineTo(-60, 65);
+            ctx.lineTo(-110, 65);
+            ctx.lineTo(-60, 10);
+            ctx.fill();
+
+            // Vertical Stabilizers (Tail Fins)
+            ctx.fillStyle = '#1a1a1a';
+            ctx.beginPath();
+            ctx.moveTo(-80, -18);
+            ctx.lineTo(-120, -65);
+            ctx.lineTo(-140, -65);
+            ctx.lineTo(-110, -18);
+            ctx.fill();
+
+            // Panel Lines / Details
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(0, 12);
+            ctx.lineTo(-20, -28);
+            ctx.moveTo(-60, 15);
+            ctx.lineTo(-60, -22);
+            ctx.stroke();
+
+            // Blinking Nav Lights
+            let blink = Math.sin(time * 15) > 0 ? 1 : 0.2;
+            ctx.fillStyle = `rgba(255, 50, 50, ${blink})`; // Red light bottom
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = 'red';
+            ctx.beginPath();
+            ctx.arc(-40, 16, 2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0; // Reset
+        }
+
+        function drawAfterburner() {
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.translate(-140, 0);
+
+            // High-frequency flicker for aggressive throttle
+            let flicker = Math.random() * 0.3 + 0.8; 
+
+            // Massive Outer Plume (Orange/Red)
+            ctx.shadowBlur = 60 * flicker;
+            ctx.shadowColor = '#ff4400';
+            ctx.fillStyle = `rgba(255, 60, 0, ${0.7 * flicker})`;
+            ctx.beginPath();
+            ctx.moveTo(0, 14);
+            ctx.lineTo(-250 * flicker, 0); // Extremely long flame
+            ctx.lineTo(0, -14);
+            ctx.fill();
+
+            // Inner Core (Cyan/Blue)
+            ctx.shadowBlur = 30 * flicker;
+            ctx.shadowColor = '#00aaff';
+            ctx.fillStyle = `rgba(0, 200, 255, ${0.9 * flicker})`;
+            ctx.beginPath();
+            ctx.moveTo(0, 8);
+            ctx.lineTo(-150 * flicker, 0);
+            ctx.lineTo(0, -8);
+            ctx.fill();
+
+            // Hottest Core (White)
+            ctx.shadowBlur = 15 * flicker;
+            ctx.shadowColor = '#ffffff';
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.moveTo(0, 4);
+            ctx.lineTo(-80 * flicker, 0);
+            ctx.lineTo(0, -4);
+            ctx.fill();
+
+            // Shock Diamonds (Mach Rings)
+            ctx.shadowBlur = 5;
+            ctx.shadowColor = '#fff';
+            ctx.fillStyle = `rgba(255, 255, 255, ${0.6 * flicker})`;
+            for (let i = 1; i <= 6; i++) {
+                let offset = i * -30 * flicker;
+                ctx.beginPath();
+                ctx.moveTo(offset + 12, 0);
+                ctx.lineTo(offset, 6);
+                ctx.lineTo(offset - 12, 0);
+                ctx.lineTo(offset, -6);
+                ctx.fill();
+            }
+
+            ctx.restore();
+        }
+
+        function animate() {
+            time += 0.016;
+
+            // Clear frame
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, width, height);
+
+            ctx.save();
+
+            // Aggressive Camera Shake
+            let shakeX = (Math.random() - 0.5) * 8;
+            let shakeY = (Math.random() - 0.5) * 8;
+            ctx.translate(width / 2 + shakeX, height / 2 + shakeY);
+
+            // Draw Background Speed Lines (z < 1.5)
+            speedLines.forEach(line => {
+                if (line.z <= 1.5) {
+                    line.update();
+                    line.draw();
+                }
+            });
+
+            // Emit Contrails from wingtips
+            particles.push(new Particle(-110, 65, 'contrail')); // Near wing
+            particles.push(new Particle(-120, -55, 'contrail')); // Far wing
+            
+            // Emit Heat Distortion particles behind the engine
+            for(let i=0; i<3; i++) {
+                particles.push(new Particle(-200 - Math.random() * 50, 0, 'heat'));
+            }
+
+            // Update and Draw Particles
+            for (let i = particles.length - 1; i >= 0; i--) {
+                let p = particles[i];
+                p.update();
+                p.draw();
+                if (p.life <= 0) particles.splice(i, 1);
+            }
+
+            // Draw Jet Ghosting (Motion Blur illusion)
+            ctx.save();
+            ctx.globalAlpha = 0.4;
+            ctx.translate(-15, 0);
+            ctx.fillStyle = '#000';
+            drawJetGeometry(true);
+            ctx.restore();
+
+            // Draw Core Jet Elements
+            // Slight pitch oscillation
+            ctx.rotate(Math.sin(time * 3) * 0.02); 
+            drawAfterburner();
+            drawJetGeometry();
+
+            // Draw Foreground Speed Lines (z > 1.5) for intense depth/parallax
+            speedLines.forEach(line => {
+                if (line.z > 1.5) {
+                    line.update();
+                    line.draw();
+                }
+            });
+
+            ctx.restore();
+            requestAnimationFrame(animate);
+        }
+
+        // Start Simulation
+        animate();
+    </script>
+</body>
+</html>
